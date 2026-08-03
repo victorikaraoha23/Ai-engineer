@@ -53,9 +53,5 @@ def openrouter_call():
             
         except Exception as e:
             print(f"An error occurred: {e}")
-    print("=====================summary===================")
-    print("fastest model:")
-    print("cheapest model:")
-
-
+    
 openrouter_call()

@@ -6,10 +6,8 @@ from openai import OpenAI
 
 load_dotenv()
 
-client = chromadb.Client()
-collection= client.create_collection(name="python bible")``
-
-client = OpenAI(base_url="https://openrouter.ai/api/v1")
+chromaclient = chromadb.PersistentClient(path="./chroma_db")
+openaiclient = OpenAI(base_url="https://openrouter.ai/api/v1")
 
 with pymupdf.open("the-python-bible.pdf") as doc:
     full_text = ""
@@ -17,8 +15,6 @@ with pymupdf.open("the-python-bible.pdf") as doc:
         full_text += str(page.get_text())
 encoding = tiktoken.get_encoding("cl100k_base")
 token_id = encoding.encode(full_text)
-print(token_id)
-print(f"Number of tokens in full text: {len(token_id)}")
 
 
 def chunk_tokens(tokens, chunk_size=500, overlap=50):
@@ -40,13 +36,41 @@ def chunk_tokens(tokens, chunk_size=500, overlap=50):
     return chunks
 
 
-print(chunk_tokens(token_id, chunk_size=500, overlap=50))
 print(f"Number of chunks: {len(chunk_tokens(token_id, chunk_size=500, overlap=50))}")
 
 
-def embed_text(text, model="openai/text-embedding-3-small"):
-    response = client.embeddings.create(model=model, input=text)
+def embed_text(text, model="nvidia/llama-nemotron-embed-vl-1b-v2:free"):
+    response = openaiclient.embeddings.create(
+        model=model, input=text, encoding_format="float"
+    )
     return response.data[0].embedding
 
 
-print(len(embed_text(chunk_tokens(token_id, chunk_size=500, overlap=50)[0])))
+collection = chromaclient.get_or_create_collection(name="python_bible")
+chunks = chunk_tokens(token_id, chunk_size=500, overlap=50)
+embeddings = []
+
+for chunk in chunks:
+    embedding = embed_text(chunk)
+    embeddings.append(embedding)
+
+for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+    collection.add(
+        documents=[chunk],
+        embeddings=[embedding],
+        metadatas=[{"source": "the-python-bible.pdf", "chunk_index": i}],
+        ids=[f"chunk_{i}"],
+    )
+
+print(f"Stored {collection.count()} chunks in chromadb")
+
+query = "What is a Python dictionary?"
+query_embedding = embed_text(query)
+
+results = collection.query(query_embeddings=[query_embedding], n_results=3)
+
+print(f"\nQuery: {query}")
+print("Top 3 chunks:")
+for i, doc in enumerate(results["documents"][0]):
+    print(f"\n--- Chunk {i + 1} ---")
+    print(doc[:300])
